@@ -10,19 +10,23 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     // 2. Setup Tracing / Logger
-    // utils::logger::init(); // (Akan diimplementasikan nanti)
     tracing_subscriber::fmt::init();
 
     tracing::info!("Mulai inisialisasi HFT Crypto Trading Bot...");
 
-    // TODO: Inisialisasi koneksi Binance WSS dan sistem Telegram
-    // TODO: Jalankan Event Loop Utama (engine::runner)
+    // 3. Jalankan Telegram Bot di Background (Spawn Thread Async)
+    // Kita jalankan di thread terpisah agar tidak memblokir Event Loop WebSocket nanti
+    tokio::spawn(async move {
+        if let Err(e) = notification::telegram::run_telegram_bot().await {
+            tracing::error!("Telegram Bot Service berhenti dengan error fatal: {:?}", e);
+        }
+    });
 
-    tracing::info!("Bot siap beroperasi.");
+    tracing::info!("Bot Telegram Service siap beroperasi. Silakan kirim /start di Telegram.");
     
-    // Menahan main thread agar tidak exit
+    // Menahan main thread agar aplikasi tidak langsung mati setelah inisialisasi
     tokio::signal::ctrl_c().await?;
-    tracing::info!("Menerima sinyal terminasi. Mematikan bot dengan aman...");
+    tracing::info!("Menerima sinyal terminasi (Ctrl+C). Mematikan bot dengan aman...");
     
     Ok(())
 }

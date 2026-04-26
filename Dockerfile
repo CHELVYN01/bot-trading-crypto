@@ -1,44 +1,42 @@
-# Tahap 1: Caching dependensi dengan cargo-chef
-FROM rust:1.77-slim-bookworm AS chef
-USER root
-RUN cargo install cargo-chef
+# Tahap 1: Rust 1.86.0 - Wajib untuk dependensi icu v2.2.0 (Edition 2024)
+FROM lukemathwalker/cargo-chef:latest-rust-1.86.0-slim-bookworm AS chef
 WORKDIR /app
 
-# Tahap 2: Menghitung "resep" dependensi (hanya Cargo.toml & Cargo.lock)
+# Tahap 2: Planner
 FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# Tahap 3: Build (Cook) dependensi dan aplikasi utama
+# Tahap 3: Builder
 FROM chef AS builder
+
+# Install build dependencies: pkg-config & libssl-dev untuk crate openssl-sys
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY --from=planner /app/recipe.json recipe.json
-# Build dependensi. Layer ini akan di-cache selama Cargo.toml/lock tidak berubah.
-# Ini sangat menghemat waktu build di CI/CD.
+
+# Build dependensi (Layer ini ter-cache jika Cargo.toml tidak berubah)
 RUN cargo chef cook --release --recipe-path recipe.json
 
-# Copy source code bot trading
+# Copy source code dan build aplikasi utama
 COPY . .
-# Asumsi nama binary di Cargo.toml adalah `trading_bot`
-# Silakan sesuaikan nama ini jika berbeda
 RUN cargo build --release
 
-# Tahap 4: Runtime Image (Sangat ringan dan aman)
+# Tahap 4: Runtime
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
-# Install root sertifikat SSL yang dibutuhkan untuk koneksi tokio-tungstenite (Binance WS) dan Teloxide
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends ca-certificates libssl3 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Pindahkan binary bot dari tahap builder.
-# Ganti `trading_bot` sesuai dengan nama binary di project Anda.
+# Copy binary dari builder
 COPY --from=builder /app/target/release/trading_bot /usr/local/bin/crypto-bot
 
-# Set environment variabel untuk optimasi Tokio dan logging
 ENV RUST_LOG="info"
-ENV TOKIO_WORKER_THREADS="2" 
+ENV TOKIO_WORKER_THREADS="2"
 
-# Jalankan bot
 CMD ["crypto-bot"]
