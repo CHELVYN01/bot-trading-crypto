@@ -24,6 +24,13 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Bot Telegram Service siap beroperasi. Silakan kirim /start di Telegram.");
     
+    // 4. Jalankan Trading Engine di Background (Koneksi ke Tokocrypto WebSocket)
+    tokio::spawn(async move {
+        if let Err(e) = engine::runner::start_engine().await {
+            tracing::error!("Trading Engine terhenti secara fatal: {:?}", e);
+        }
+    });
+    
     // Menahan main thread agar aplikasi tidak langsung mati setelah inisialisasi
     tokio::signal::ctrl_c().await?;
     tracing::info!("Menerima sinyal terminasi (Ctrl+C). Mematikan bot dengan aman...");

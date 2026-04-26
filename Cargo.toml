@@ -11,6 +11,7 @@ tokio = { version = "1.36", features = ["full"] }
 # WebSocket & HTTP
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 reqwest = { version = "0.11", features = ["json"] }
+futures-util = "0.3"
 
 # Telegram Interface
 teloxide = { version = "0.12", features = ["macros", "rustls"] }
@@ -32,5 +33,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Financial Math
-rust_decimal = "1.32"
+rust_decimal = { version = "1.32", features = ["serde-with-str"] }
 rust_decimal_macros = "1.32"
