@@ -1,0 +1,36 @@
+[package]
+name = "trading_bot"
+version = "0.1.0"
+edition = "2021"
+authors = ["HFT Engineer"]
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.36", features = ["full"] }
+
+# WebSocket & HTTP
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+reqwest = { version = "0.11", features = ["json"] }
+
+# Telegram Interface
+teloxide = { version = "0.12", features = ["macros", "rustls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Binance API
+binance = "0.17.1"
+
+# Error Handling & Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Environment & Logging
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Financial Math
+rust_decimal = "1.32"
+rust_decimal_macros = "1.32"

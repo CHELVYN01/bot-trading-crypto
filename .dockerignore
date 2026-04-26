@@ -1,0 +1,23 @@
+# Ignore Cargo build directory
+target/
+**/*.rs.bk
+
+# Ignore environment file untuk mencegah kebocoran secret ke image Docker
+.env
+.env.*
+
+# Ignore git folder
+.git/
+.gitignore
+
+# Docker & IDE
+Dockerfile
+.dockerignore
+.vscode/
+.idea/
+.gemini/
+.agents/
+
+# Backup & temp files
+*~
+*.swp
