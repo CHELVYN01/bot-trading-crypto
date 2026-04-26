@@ -3,6 +3,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tracing::{error, info, warn};
 
 use crate::broker::model::TokocryptoKlineEvent;
+use crate::strategy::scanner::Scanner;
 
 // Target: BTC-BIDR (Bitcoin to Rupiah) di timeframe 1 menit
 // Menggunakan server bypass resmi Tokocrypto untuk menghindari blokir internet lokal
@@ -15,6 +16,9 @@ pub async fn connect_and_listen() -> anyhow::Result<()> {
     info!("✅ [Phase 2] Berhasil terhubung ke Tokocrypto WebSocket!");
 
     let (_, mut read) = ws_stream.split();
+    
+    // Inisialisasi Otak Bot (Scanner)
+    let mut scanner = Scanner::new();
 
     while let Some(msg) = read.next().await {
         match msg {
@@ -25,13 +29,8 @@ pub async fn connect_and_listen() -> anyhow::Result<()> {
                         // Kita hanya akan memproses jika candle (1 menit) sudah Final
                         // agar perhitungan matematis tidak meleset akibat harga yang masih bergerak.
                         if event.kline.is_final {
-                            info!(
-                                "📈 [K-LINE FINAL] Pair: {}, Close: Rp {}, Volume: {}",
-                                event.symbol.to_uppercase(),
-                                event.kline.close,
-                                event.kline.volume
-                            );
-                            // TODO (Phase 3): Teruskan data OHLCV ini ke Memory Store / Indicator Engine
+                            // Masukkan data ke Scanner untuk dihitung (Phase 3)
+                            scanner.process_new_candle(&event.symbol, event.kline);
                         }
                     }
                     Err(e) => {
