@@ -15,6 +15,10 @@ enum Command {
     Status,
     #[command(description = "Tes koneksi server.")]
     Ping,
+    #[command(description = "Mengubah mode ke PAPER TRADING (Simulasi).")]
+    Paper,
+    #[command(description = "Mengubah mode ke LIVE TRADING (Uang Asli!).")]
+    Live,
 }
 
 pub async fn run_telegram_bot(state: SharedState) -> anyhow::Result<()> {
@@ -68,6 +72,10 @@ pub async fn run_telegram_bot(state: SharedState) -> anyhow::Result<()> {
                         None => "Menghitung...".to_string(),
                     };
                     let whale_alert = if s.is_whale_alert { "⚠️ AKTIF (CUKONG MASUK)" } else { "Aman" };
+                    let mode_text = match s.trading_mode {
+                        crate::engine::state::TradingMode::Paper => "🛡️ PAPER (Aman)",
+                        crate::engine::state::TradingMode::Live => "⚔️ LIVE (Uang Asli)",
+                    };
 
                     let status_msg = format!(
                         "📊 <b>Status Sistem (BTCBIDR):</b>\n\n\
@@ -77,15 +85,26 @@ pub async fn run_telegram_bot(state: SharedState) -> anyhow::Result<()> {
                         - 🛡️ ATR(14): {}\n\
                         - 🐋 Z-Score(20): {}\n\
                         - Whale Alert: {}\n\n\
+                        - 🕹️ Mode Trading: <b>{}</b>\n\
                         - 💰 Modal Aktif: Rp 500.000\n\
                         - 🎯 Posisi: Flat (Tidak ada)",
-                        conn_status, s.total_candles, price_text, atr_text, z_text, whale_alert
+                        conn_status, s.total_candles, price_text, atr_text, z_text, whale_alert, mode_text
                     );
 
                     bot.send_message(msg.chat.id, status_msg).parse_mode(teloxide::types::ParseMode::Html).await?;
                 }
                 Command::Ping => {
                     bot.send_message(msg.chat.id, "🏓 Pong! Latensi sistem dalam batas toleransi.").await?;
+                }
+                Command::Paper => {
+                    let mut s = state_clone.write().await;
+                    s.trading_mode = crate::engine::state::TradingMode::Paper;
+                    bot.send_message(msg.chat.id, "🛡️ <b>Mode Diubah: PAPER TRADING</b>\nBot sekarang berjalan dalam mode simulasi. Tidak ada uang asli yang digunakan.\nSangat aman untuk tuning strategi!").parse_mode(teloxide::types::ParseMode::Html).await?;
+                }
+                Command::Live => {
+                    let mut s = state_clone.write().await;
+                    s.trading_mode = crate::engine::state::TradingMode::Live;
+                    bot.send_message(msg.chat.id, "⚔️ <b>WARNING: Mode Diubah ke LIVE TRADING!</b>\nBot sekarang menggunakan <b>UANG ASLI (Rp500.000)</b>.\nPastikan mental dan strategi Anda sudah siap tempur!").parse_mode(teloxide::types::ParseMode::Html).await?;
                 }
             };
             
