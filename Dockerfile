@@ -1,5 +1,5 @@
-# Tahap 1: Rust 1.86.0 - Wajib untuk dependensi icu v2.2.0 (Edition 2024)
-FROM lukemathwalker/cargo-chef:latest-rust-1.86.0-slim-bookworm AS chef
+# Tahap 1: Rust 1.88.0 - Wajib untuk dependensi terbaru
+FROM lukemathwalker/cargo-chef:latest-rust-1.88.0-slim-bookworm AS chef
 WORKDIR /app
 
 # Tahap 2: Planner

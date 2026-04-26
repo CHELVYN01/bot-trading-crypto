@@ -13,8 +13,8 @@ tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 reqwest = { version = "0.11", features = ["json"] }
 futures-util = "0.3"
 
-# SQLite Database (Asynchronous)
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
+# Database (Asynchronous PostgreSQL)
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio", "tls-rustls", "chrono", "rust_decimal"] }
 
 # Telegram Interface
 teloxide = { version = "0.12", features = ["macros", "rustls"] }
@@ -34,6 +34,9 @@ thiserror = "1.0"
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time & Date Handling
+chrono = "0.4"
 
 # Financial Math
 rust_decimal = { version = "1.32", features = ["serde-with-str", "maths"] }

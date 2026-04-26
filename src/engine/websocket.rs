@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Postgres};
 
 use crate::broker::model::TokocryptoKlineEvent;
 use crate::strategy::scanner::Scanner;
@@ -12,7 +12,7 @@ use crate::engine::state::SharedState;
 // Menggunakan server bypass resmi Tokocrypto untuk menghindari blokir internet lokal
 const TOKOCRYPTO_WS_URL: &str = "wss://stream-toko.2meta.app/ws/btcbidr@kline_1m";
 
-pub async fn connect_and_listen(state: SharedState, mut scanner: Scanner, db_pool: Pool<Sqlite>) -> anyhow::Result<()> {
+pub async fn connect_and_listen(state: SharedState, mut scanner: Scanner, db_pool: Pool<Postgres>) -> anyhow::Result<()> {
     info!("Menghubungkan 'Mata Bot' ke Tokocrypto WebSocket: {}", TOKOCRYPTO_WS_URL);
 
     let (ws_stream, _) = connect_async(TOKOCRYPTO_WS_URL).await?;
@@ -37,15 +37,17 @@ pub async fn connect_and_listen(state: SharedState, mut scanner: Scanner, db_poo
                         if event.kline.is_final {
                             let close_price = event.kline.close;
                             
-                            // Ekstrak data untuk SQLite
-                            let close_f64 = rust_decimal::prelude::ToPrimitive::to_f64(&close_price).unwrap_or(0.0);
-                            let vol_f64 = rust_decimal::prelude::ToPrimitive::to_f64(&event.kline.volume).unwrap_or(0.0);
+                            // Ekstrak data untuk PostgreSQL
+                            let open_price = event.kline.open;
+                            let high_price = event.kline.high;
+                            let low_price = event.kline.low;
+                            let volume = event.kline.volume;
                             let symbol_clone = event.symbol.clone();
                             let pool_clone = db_pool.clone();
                             
-                            // 1. Simpan ke SQLite di background agar RAM tidak melambat (Fire and Forget)
+                            // 1. Simpan ke PostgreSQL di background agar RAM tidak melambat (Fire and Forget)
                             tokio::spawn(async move {
-                                crate::broker::db::save_kline(&pool_clone, &symbol_clone, close_f64, vol_f64).await;
+                                crate::broker::db::save_kline(&pool_clone, &symbol_clone, open_price, high_price, low_price, close_price, volume).await;
                             });
                             
                             // 2. Masukkan data ke Scanner untuk dihitung (Phase 3)

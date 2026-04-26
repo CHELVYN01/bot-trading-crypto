@@ -5,11 +5,14 @@ use crate::broker::{api, db};
 use crate::strategy::scanner::Scanner;
 
 pub async fn start_engine(state: SharedState) -> anyhow::Result<()> {
-    // 1. Inisialisasi SQLite Database
-    let db_pool = match db::init_db().await {
+    // 1. Inisialisasi PostgreSQL Database
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/trading_bot".to_string());
+        
+    let db_pool = match db::init_db(&database_url).await {
         Ok(pool) => pool,
         Err(e) => {
-            error!("Fatal Error: Database SQLite gagal disiapkan! {}", e);
+            error!("Fatal Error: Database PostgreSQL gagal disiapkan! {}", e);
             return Err(e);
         }
     };
