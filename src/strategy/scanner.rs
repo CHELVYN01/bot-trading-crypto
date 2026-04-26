@@ -19,7 +19,8 @@ impl Scanner {
     }
 
     /// Dipanggil oleh WebSocket setiap kali ada 1 candle yang sudah selesai (Final).
-    pub fn process_new_candle(&mut self, symbol: &str, kline: Kline) {
+    /// Mengembalikan tuple (ATR, Z-Score) untuk disimpan ke Shared State.
+    pub fn process_new_candle(&mut self, symbol: &str, kline: Kline) -> (Option<Decimal>, Option<Decimal>) {
         let close_price = kline.close;
         
         // 1. Simpan candle ke Memory Store
@@ -48,5 +49,7 @@ impl Scanner {
                 self.store.candles.len(), 20
             );
         }
+        
+        (atr, z_score)
     }
 }
