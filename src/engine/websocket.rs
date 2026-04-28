@@ -11,7 +11,7 @@ use crate::strategy::signal::TradeSignal;
 use crate::engine::state::SharedState;
 
 /// Official Tokocrypto WebSocket URL
-const TOKOCRYPTO_WS_URL: &str = "wss://stream.tokocrypto.com/ws/btcbidr@kline_1m";
+const TOKOCRYPTO_WS_URL: &str = "wss://stream.binance.com:9443/ws/btcbidr@kline_1m";
 
 pub async fn connect_and_listen(
     state: SharedState,

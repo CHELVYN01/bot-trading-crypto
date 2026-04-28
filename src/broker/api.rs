@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
 use tracing::{info, error};
 
-const REST_API_URL: &str = "https://api.tokocrypto.com/api/v1/klines";
+const REST_API_URL: &str = "https://api.binance.com/api/v3/klines";
 
 pub async fn fetch_historical_klines(symbol: &str, limit: usize) -> anyhow::Result<Vec<Kline>> {
     info!("Menyusup ke server Tokocrypto untuk mengambil {} data sejarah terakhir...", limit);
