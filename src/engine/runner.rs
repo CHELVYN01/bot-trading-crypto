@@ -4,16 +4,14 @@ use sqlx::{Pool, Postgres};
 
 use super::websocket;
 use super::state::SharedState;
-use crate::broker::{api, db};
-use crate::strategy::scanner::Scanner;
+use crate::broker::db;
 use crate::strategy::signal::TradeSignal;
 
 pub async fn start_engine(
     state: SharedState,
     tx_signal: mpsc::Sender<TradeSignal>,
 ) -> anyhow::Result<()> {
-    // 1. Coba koneksi ke PostgreSQL — BUKAN FATAL jika gagal
-    //    Bot tetap jalan tanpa database (hanya audit log yang dimatikan)
+    // 1. Koneksi Database (Optional)
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/trading_bot".to_string());
 
@@ -23,16 +21,12 @@ pub async fn start_engine(
             Some(pool)
         }
         Err(e) => {
-            warn!(
-                "[ENGINE] ⚠️ Database tidak tersedia: {}",
-                e
-            );
-            warn!("[ENGINE] ⚠️ Bot tetap berjalan TANPA audit log. Trading tidak terpengaruh.");
+            warn!("[ENGINE] ⚠️ Database tidak tersedia: {}. Berjalan tanpa audit log.", e);
             None
         }
     };
 
-    // 2. Cleanup data lama setiap 24 jam (hanya jika DB tersedia)
+    // 2. Background Task: Cleanup Data Lama (24 Jam sekali)
     if let Some(ref pool) = db_pool {
         let cleanup_pool = pool.clone();
         tokio::spawn(async move {
@@ -43,46 +37,24 @@ pub async fn start_engine(
         });
     }
 
-    info!("[ENGINE] Trading Engine aktif (Auto-Reconnect enabled)...");
+    info!("[ENGINE] Market Scanner Engine aktif (Multi-Coin support)...");
 
-    // Loop Auto-Reconnect: jika WebSocket putus, reconnect dalam 5 detik
+    // 3. Loop Auto-Reconnect: Market Scanner (The Listener)
     loop {
-        // 3. Cold Start: sedot riwayat REST API agar Strategist langsung siap
-        let mut scanner = Scanner::new();
-        match api::fetch_historical_klines("BTCBIDR", 50).await {
-            Ok(history) => {
-                let count = history.len();
-                for kline in history {
-                    // Hanya push ke memory store, tidak emit sinyal dari data historis
-                    scanner.store.push(kline);
-                }
-                {
-                    let mut s = state.write().await;
-                    s.total_candles = scanner.store.candles.len();
-                }
-                info!("[ENGINE] Cold Start selesai: {} candle historis dimuat.", count);
-            }
-            Err(e) => {
-                warn!("[ENGINE] REST API gagal ({}). Bot akan belajar dari nol via WebSocket.", e);
-            }
-        }
-
-        // 4. Jalankan The Listener dengan channel ke Guardian
         let result = websocket::connect_and_listen(
             state.clone(),
-            scanner,
-            db_pool.clone(), // Teruskan Option<Pool> — bisa None jika DB mati
+            db_pool.clone(),
             tx_signal.clone(),
         )
         .await;
 
         if let Err(e) = result {
             error!(
-                "[ENGINE] WebSocket terputus: {:?}. Reconnect dalam 5 detik...",
+                "[ENGINE] Market Scanner terputus: {:?}. Reconnect dalam 5 detik...",
                 e
             );
         } else {
-            warn!("[ENGINE] WebSocket berhenti normal. Reconnect dalam 5 detik...");
+            warn!("[ENGINE] Market Scanner berhenti normal. Reconnect dalam 5 detik...");
         }
 
         {

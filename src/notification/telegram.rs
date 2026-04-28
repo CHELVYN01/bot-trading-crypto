@@ -90,27 +90,38 @@ pub async fn run_telegram_bot(
                     let s = state_clone.read().await;
 
                     let conn_status  = if s.is_connected { "🟢 Connected" } else { "🔴 Disconnected" };
-                    let price_text   = s.last_price.map_or("Menunggu...".into(), |p| format!("Rp {}", p));
-                    let atr_text     = s.current_atr.map_or("Menghitung...".into(), |a| format!("Rp {:.0}", a));
-                    let z_text       = s.current_z_score.map_or("Menghitung...".into(), |z| format!("{:.2}", z));
-                    let whale_alert  = if s.is_whale_alert { "⚠️ AKTIF (Volume Surge!)" } else { "✅ Normal" };
                     let mode_text    = match s.trading_mode {
                         crate::engine::state::TradingMode::Paper => "🛡️ PAPER (Simulasi)",
                         crate::engine::state::TradingMode::Live  => "⚔️ LIVE (Uang Asli!)",
                     };
 
+                    let mut market_summary = String::new();
+                    if s.market_data.is_empty() {
+                        market_summary.push_str("<i>- Menunggu detak jantung market...</i>");
+                    } else {
+                        let mut symbols: Vec<_> = s.market_data.keys().collect();
+                        symbols.sort();
+
+                        for sym in symbols.iter().take(10) {
+                            if let Some(data) = s.market_data.get(*sym) {
+                                let price = data.last_price.map_or("...".to_string(), |p| format!("Rp {}", p));
+                                let whale = if data.is_whale_alert { "🚨 <b>SURGE!</b>" } else { "✅" };
+                                market_summary.push_str(&format!(
+                                    "🔸 <b>{}</b>: {}\n   Status: {}\n",
+                                    sym, price, whale
+                                ));
+                            }
+                        }
+                    }
+
                     let status_msg = format!(
-                        "📊 <b>Status Sistem (BTCBIDR):</b>\n\n\
-                        - Koneksi Exchange: <i>{}</i>\n\
-                        - Data Candle: {} / 50\n\
-                        - Harga Terakhir: <b>{}</b>\n\
-                        - 🛡️ ATR(14): {}\n\
-                        - 🐋 Z-Score(20): {}\n\
-                        - Whale Alert: {}\n\n\
-                        - 🕹️ Mode: <b>{}</b>\n\
-                        - 💰 Modal: Rp 500.000\n\
-                        - 🎯 Posisi: Flat",
-                        conn_status, s.total_candles, price_text, atr_text, z_text, whale_alert, mode_text
+                        "📊 <b>STATUS MARKET SCANNER:</b>\n\n\
+                        - Exchange: <i>{}</i>\n\
+                        - Mode: <b>{}</b>\n\n\
+                        {}\n\
+                        💰 Modal: Rp 500.000\n\
+                        🎯 Posisi: Flat",
+                        conn_status, mode_text, market_summary
                     );
 
                     bot.send_message(msg.chat.id, status_msg)

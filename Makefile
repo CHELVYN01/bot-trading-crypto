@@ -16,9 +16,9 @@ up:
 down:
 	docker compose down
 
-# Restart semua service
+# Restart semua service (hanya restart proses, tidak rebuild)
 restart:
-	docker compose down && docker compose up -d
+	docker compose restart
 
 # Melihat log bot secara real-time
 log:
@@ -36,5 +36,11 @@ ps:
 clean:
 	docker system prune -f
 
-# Rebuild image dan restart semua service
-deploy: build restart
+# Update kode dari Git dan langsung deploy perubahan
+update:
+	git pull origin $(shell git rev-parse --abbrev-ref HEAD)
+	docker compose up -d --build
+
+# Rebuild image dan update service yang berubah saja
+deploy:
+	docker compose up -d --build
