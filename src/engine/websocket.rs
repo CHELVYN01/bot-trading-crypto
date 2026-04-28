@@ -14,19 +14,22 @@ use crate::engine::state::{SharedState, SymbolState};
 /// Base URL untuk Combined Streams Binance
 const BINANCE_COMBINED_BASE: &str = "wss://stream.binance.com:9443/stream?streams=";
 
-/// List koin BIDR yang akan dipantau (Market Scanner)
-pub const SCAN_SYMBOLS: &[&str] = &[
-    "btcbidr", "ethbidr", "solbidr", "bnbbidr", "adabidr", 
-    "dotbidr", "xrpbidr", "dogebidr", "maticbidr", "nearbidr"
-];
-
 pub async fn connect_and_listen(
     state: SharedState,
     db_pool: Option<Pool<Postgres>>,
     tx_signal: mpsc::Sender<TradeSignal>,
 ) -> anyhow::Result<()> {
-    // 1. Bangun URL Combined Stream (contoh: .../stream?streams=btcbidr@kline_1m/ethbidr@kline_1m/...)
-    let streams = SCAN_SYMBOLS
+    // 1. DYNAMIC DISCOVERY: Cari koin yang paling 'hot' (Top 10 Gainers)
+    let dynamic_symbols = match crate::broker::api::fetch_top_gainers_bidr(10).await {
+        Ok(syms) => syms,
+        Err(e) => {
+            warn!("⚠️ Gagal mencari koin dinamis: {}. Pakai fallback BTC & ETH.", e);
+            vec!["btcbidr".to_string(), "ethbidr".to_string()]
+        }
+    };
+
+    // Bangun URL Combined Stream
+    let streams = dynamic_symbols
         .iter()
         .map(|s| format!("{}@kline_1m", s))
         .collect::<Vec<_>>()
@@ -34,7 +37,7 @@ pub async fn connect_and_listen(
     
     let full_url = format!("{}{}", BINANCE_COMBINED_BASE, streams);
     
-    info!("👂 [LISTENER] Menghubungkan Market Scanner ke {} koin...", SCAN_SYMBOLS.len());
+    info!("👂 [LISTENER] Menghubungkan Market Scanner ke {} koin Top Gainers...", dynamic_symbols.len());
 
     let (ws_stream, _) = connect_async(full_url).await?;
 
@@ -49,9 +52,15 @@ pub async fn connect_and_listen(
     // 2. Inisialisasi Scanner dan COLD START untuk tiap koin
     let mut scanners: HashMap<String, Scanner> = HashMap::new();
 
-    info!("🚀 [ENGINE] Memulai Cold Start untuk {} koin...", SCAN_SYMBOLS.len());
+    {
+        // Bersihkan data market lama agar status Telegram cuma isi koin yang baru
+        let mut s = state.write().await;
+        s.market_data.clear();
+    }
 
-    for symbol in SCAN_SYMBOLS {
+    info!("🚀 [ENGINE] Memulai Cold Start untuk {} koin Hunter...", dynamic_symbols.len());
+
+    for symbol in &dynamic_symbols {
         let sym_upper = symbol.to_uppercase();
         let mut scanner = Scanner::new();
 
@@ -77,6 +86,10 @@ pub async fn connect_and_listen(
                     entry.current_atr = atr;
                     entry.current_z_score = z_score;
                     entry.total_candles = scanner.store.candles.len();
+                }
+
+                if let (Some(a), Some(z)) = (atr, z_score) {
+                    info!("📊 [ANALYSIS] {}: ATR=Rp {:.0} | Z-Score={:.2} (Ready)", sym_upper, a, z);
                 }
 
                 scanners.insert(sym_upper.clone(), scanner);
