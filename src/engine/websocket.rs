@@ -89,7 +89,7 @@ pub async fn connect_and_listen(
                 }
 
                 if let (Some(a), Some(z)) = (atr, z_score) {
-                    info!("📊 [ANALYSIS] {}: ATR=Rp {:.0} | Z-Score={:.2} (Ready)", sym_upper, a, z);
+                    info!("📊 [ANALYSIS] {}: ATR=Rp {:.2} | Z-Score={:.2} (Ready)", sym_upper, a, z);
                 }
 
                 scanners.insert(sym_upper.clone(), scanner);
