@@ -2,32 +2,39 @@
 IMAGE_NAME=crypto-bot
 CONTAINER_NAME=trading_instance
 
-.PHONY: build run stop log restart clean
+.PHONY: build up down restart log clean ps
 
-# Membangun image Docker (Menggunakan multi-stage build & cargo-chef)
+# Membangun image Docker bot (Rust)
 build:
 	docker build -t $(IMAGE_NAME) .
 
-# Menjalankan kontainer dengan menyertakan file .env
-run:
-	docker run -d \
-		--name $(CONTAINER_NAME) \
-		--env-file .env \
-		--restart unless-stopped \
-		$(IMAGE_NAME)
+# Menjalankan SEMUA service (Bot + PostgreSQL) via Docker Compose
+up:
+	docker compose up -d
 
-# Menghentikan dan menghapus kontainer
-stop:
-	docker stop $(CONTAINER_NAME) || true
-	docker rm $(CONTAINER_NAME) || true
+# Menghentikan semua service
+down:
+	docker compose down
+
+# Restart semua service
+restart:
+	docker compose down && docker compose up -d
 
 # Melihat log bot secara real-time
 log:
-	docker logs -f $(CONTAINER_NAME)
+	docker compose logs -f trading_bot
 
-# Restart bot (berguna jika ada perubahan konfigurasi di .env)
-restart: stop run
+# Melihat log PostgreSQL
+log-db:
+	docker compose logs -f postgres
 
-# Membersihkan image yang tidak terpakai
+# Melihat status semua container
+ps:
+	docker compose ps
+
+# Membersihkan image yang tidak terpakai (hati-hati: tidak hapus volume/data DB)
 clean:
 	docker system prune -f
+
+# Rebuild image dan restart semua service
+deploy: build restart

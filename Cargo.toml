@@ -26,6 +26,11 @@ serde_json = "1.0"
 # Binance API
 binance = "0.17.1"
 
+# Cryptographic Signing (HMAC-SHA256 untuk signed order Tokocrypto)
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
 # Error Handling & Utilities
 anyhow = "1.0"
 thiserror = "1.0"

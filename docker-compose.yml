@@ -1,0 +1,44 @@
+services:
+
+  # ─────────────────────────────────────────
+  # Service 1: Database PostgreSQL
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: trading_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cj
+      POSTGRES_PASSWORD: cj123
+      POSTGRES_DB: trading_bot
+    ports:
+      - "47832:5432"        # Port host:container — sesuai DATABASE_URL di .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data   # Data persisten — tidak hilang saat restart
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cj -d trading_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # Service 2: Trading Bot (Rust)
+  # ─────────────────────────────────────────
+  trading_bot:
+    image: crypto-bot:latest       # Image hasil dari: make build
+    container_name: trading_instance
+    restart: unless-stopped
+    env_file:
+      - .env                       # Semua konfigurasi dari .env (API key, Telegram, dll)
+    environment:
+      # Override DATABASE_URL agar pakai nama service Docker, bukan host.docker.internal
+      DATABASE_URL: postgres://cj:cj123@postgres:5432/trading_bot
+    depends_on:
+      postgres:
+        condition: service_healthy  # Bot baru start setelah PostgreSQL benar-benar siap
+    links:
+      - postgres
+
+volumes:
+  pg_data:
+    driver: local
