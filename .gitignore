@@ -16,6 +16,7 @@ target/
 # Lingkungan (PENTING: Data Sovereignty)
 .env
 .env.*
+!.env.example
 
 # Editor / IDE
 .vscode/
