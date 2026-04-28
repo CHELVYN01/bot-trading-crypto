@@ -85,7 +85,11 @@ pub async fn run_guardian(
             // 1. Terima sinyal baru untuk Entry
             Some(signal) = rx_signal.recv() => {
                 if position.is_none() {
-                    // Logika Entry (Sama seperti sebelumnya)
+                    let trading_mode = {
+                        let s = state.read().await;
+                        s.trading_mode.clone()
+                    };
+
                     if signal.z_score >= dec!(2.5) && equity >= dec!(10000) {
                         info!("🎯 [GUARDIAN] Sinyal VALID! {} | Entry: Rp {}", signal.symbol, signal.entry_price);
                         
@@ -133,14 +137,17 @@ pub async fn run_guardian(
             // 2. Cek posisi aktif secara Real-time setiap 500ms
             _ = interval.tick() => {
                 if let Some(mut pos) = position.clone() {
-                    // Ambil harga terbaru dari SharedState
+                    let trading_mode = {
+                        let s = state.read().await;
+                        s.trading_mode.clone()
+                    };
+
                     let current_price = {
                         let s = state.read().await;
                         s.market_data.get(&pos.symbol).and_then(|d| d.last_price)
                     };
 
                     if let Some(price) = current_price {
-                        // Cek Kondisi Exit (TP/SL/Trailing)
                         if let Some(exit_reason) = check_exit_condition(&pos, price) {
                             info!("🚪 [GUARDIAN] EXIT Real-time: {:?} | {} @ Rp {}", exit_reason, pos.symbol, price);
                             
@@ -172,12 +179,9 @@ pub async fn run_guardian(
                                 info!("💰 [GUARDIAN] Exit Selesai. PnL: Rp {:.0} | Equity: Rp {:.0}", pnl, equity);
                             }
                         } else {
-                            // Update Trailing Stop jika harga naik
                             if price > pos.highest_price {
                                 pos.highest_price = price;
-                                // Kita asumsikan ATR tetap (atau bisa diupdate dari state jika perlu)
-                                // Untuk simplifikasi, kita pakai ATR saat entry
-                                let new_trailing = price - (pos.entry_price - pos.stop_loss); // Jarak SL awal
+                                let new_trailing = price - (pos.entry_price - pos.stop_loss);
                                 if new_trailing > pos.trailing_stop {
                                     pos.trailing_stop = new_trailing;
                                 }
@@ -189,9 +193,6 @@ pub async fn run_guardian(
             }
         }
     }
-
-    warn!("[GUARDIAN] Channel sinyal tertutup. Guardian berhenti.");
-    Ok(())
 }
 
 /// Evaluasi apakah posisi aktif harus di-exit.
