@@ -16,9 +16,9 @@ up:
 down:
 	docker compose down
 
-# Restart semua service (hanya restart proses, tidak rebuild)
+# Restart semua service (Paksa Down & Up)
 restart:
-	docker compose restart
+	docker compose down && docker compose up -d
 
 # Melihat log bot secara real-time
 log:
