@@ -77,183 +77,115 @@ pub async fn run_guardian(
         equity, atr_multiplier
     );
 
-    // Loop utama: terima sinyal dari channel
-    while let Some(signal) = rx_signal.recv().await {
-        // Baca mode trading (PAPER/LIVE) dari shared state
-        let trading_mode = {
-            let s = state.read().await;
-            s.trading_mode.clone()
-        };
+    // Loop utama: menggunakan interval untuk pengecekan real-time jika ada posisi
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
 
-        // Baca harga terkini untuk cek posisi yang sedang aktif
-        let current_price = signal.entry_price;
-
-        // === BAGIAN 1: CEK POSISI AKTIF (EXIT LOGIC) ===
-        if let Some(ref pos) = position.clone() {
-            let should_exit = check_exit_condition(pos, current_price);
-
-            if let Some(exit_reason) = should_exit {
-                info!(
-                    "🚪 [GUARDIAN] Kondisi EXIT terdeteksi: {:?} | {} @ Rp {}",
-                    exit_reason, pos.symbol, current_price
-                );
-
-                // Eksekusi SELL
-                let sell_result = match trading_mode {
-                    TradingMode::Live => {
-                        order::place_sell_order(&api_key, &secret_key, &pos.symbol, pos.quantity)
-                            .await
-                    }
-                    TradingMode::Paper => {
-                        // Simulasi: anggap SELL berhasil di harga saat ini
-                        info!("📋 [PAPER] Simulasi SELL {} @ Rp {}", pos.symbol, current_price);
-                        Ok(order::OrderResult {
-                            order_id: 0,
-                            symbol: pos.symbol.clone(),
-                            executed_price: current_price,
-                            executed_qty: pos.quantity,
-                        })
-                    }
-                };
-
-                match sell_result {
-                    Ok(result) => {
-                        let sell_value = result.executed_price * result.executed_qty;
-                        let buy_value = pos.entry_price * pos.quantity;
-                        let pnl = sell_value - buy_value;
-                        equity += pnl;
-
-                        info!(
-                            "💰 [GUARDIAN] SELL selesai | PnL: Rp {:.0} | Equity baru: Rp {:.0}",
-                            pnl, equity
-                        );
-
-                        // Kirim laporan ke Messenger
-                        let report = TradeReport {
-                            symbol: pos.symbol.clone(),
-                            report_type: exit_reason,
-                            executed_price: result.executed_price,
-                            quantity: result.executed_qty,
-                            pnl_idr: Some(pnl),
-                            equity_idr: Some(equity),
-                            timestamp: Utc::now(),
+    loop {
+        tokio::select! {
+            // 1. Terima sinyal baru untuk Entry
+            Some(signal) = rx_signal.recv() => {
+                if position.is_none() {
+                    // Logika Entry (Sama seperti sebelumnya)
+                    if signal.z_score >= dec!(2.5) && equity >= dec!(10000) {
+                        info!("🎯 [GUARDIAN] Sinyal VALID! {} | Entry: Rp {}", signal.symbol, signal.entry_price);
+                        
+                        let buy_result = match trading_mode {
+                            TradingMode::Live => order::place_buy_order(&api_key, &secret_key, &signal.symbol, equity).await,
+                            TradingMode::Paper => {
+                                let simulated_qty = equity / signal.entry_price;
+                                Ok(order::OrderResult {
+                                    order_id: 0,
+                                    symbol: signal.symbol.clone(),
+                                    executed_price: signal.entry_price,
+                                    executed_qty: simulated_qty,
+                                })
+                            }
                         };
 
-                        if let Err(e) = tx_report.send(report).await {
-                            error!("[GUARDIAN] Gagal kirim laporan ke Messenger: {}", e);
+                        if let Ok(result) = buy_result {
+                            let trailing_initial = result.executed_price - (signal.atr * atr_multiplier);
+                            position = Some(ActivePosition {
+                                symbol: result.symbol.clone(),
+                                entry_price: result.executed_price,
+                                quantity: result.executed_qty,
+                                stop_loss: signal.stop_loss,
+                                take_profit: signal.take_profit,
+                                trailing_stop: trailing_initial,
+                                highest_price: result.executed_price,
+                            });
+                            
+                            info!("✅ [GUARDIAN] Posisi AKTIF: {} | SL: Rp {} | TP: Rp {}", result.symbol, signal.stop_loss, signal.take_profit);
+                            
+                            let _ = tx_report.send(TradeReport {
+                                symbol: result.symbol,
+                                report_type: ReportType::Entry,
+                                executed_price: result.executed_price,
+                                quantity: result.executed_qty,
+                                pnl_idr: None,
+                                equity_idr: Some(equity),
+                                timestamp: Utc::now(),
+                            }).await;
                         }
-
-                        // Reset posisi menjadi Flat
-                        position = None;
-                    }
-                    Err(e) => {
-                        error!("❌ [GUARDIAN] SELL ORDER GAGAL: {:?}", e);
-                    }
-                }
-
-                continue; // Skip bagian ENTRY, tunggu sinyal berikutnya
-            }
-
-            // Update Trailing Stop jika harga naik melebihi highest
-            if let Some(ref mut pos) = position {
-                if current_price > pos.highest_price {
-                    pos.highest_price = current_price;
-                    // Trailing stop mengikuti harga naik (selalu 1.5 ATR di bawah high)
-                    let new_trailing = current_price - (signal.atr * atr_multiplier);
-                    if new_trailing > pos.trailing_stop {
-                        pos.trailing_stop = new_trailing;
-                        info!(
-                            "📈 [GUARDIAN] Trailing Stop naik → Rp {:.0} (High baru: Rp {})",
-                            pos.trailing_stop, pos.highest_price
-                        );
                     }
                 }
             }
 
-            continue; // Sudah ada posisi aktif, skip bagian ENTRY
-        }
+            // 2. Cek posisi aktif secara Real-time setiap 500ms
+            _ = interval.tick() => {
+                if let Some(mut pos) = position.clone() {
+                    // Ambil harga terbaru dari SharedState
+                    let current_price = {
+                        let s = state.read().await;
+                        s.market_data.get(&pos.symbol).and_then(|d| d.last_price)
+                    };
 
-        // === BAGIAN 2: EVALUASI SINYAL BARU (ENTRY LOGIC) ===
+                    if let Some(price) = current_price {
+                        // Cek Kondisi Exit (TP/SL/Trailing)
+                        if let Some(exit_reason) = check_exit_condition(&pos, price) {
+                            info!("🚪 [GUARDIAN] EXIT Real-time: {:?} | {} @ Rp {}", exit_reason, pos.symbol, price);
+                            
+                            let sell_result = match trading_mode {
+                                TradingMode::Live => order::place_sell_order(&api_key, &secret_key, &pos.symbol, pos.quantity).await,
+                                TradingMode::Paper => Ok(order::OrderResult {
+                                    order_id: 0,
+                                    symbol: pos.symbol.clone(),
+                                    executed_price: price,
+                                    executed_qty: pos.quantity,
+                                }),
+                            };
 
-        // Validasi sinyal: Z-Score harus > 2.5 untuk entry
-        let z_threshold = dec!(2.5);
-        if signal.z_score < z_threshold {
-            info!(
-                "⏩ [GUARDIAN] Sinyal {} ditolak. Z-Score {:.2} < threshold {:.2}",
-                signal.symbol, signal.z_score, z_threshold
-            );
-            continue;
-        }
-
-        // Validasi saldo: pastikan equity mencukupi
-        if equity < dec!(10000) {
-            warn!("⚠️ [GUARDIAN] Equity tidak mencukupi untuk entry. Saldo: Rp {:.0}", equity);
-            continue;
-        }
-
-        info!(
-            "🎯 [GUARDIAN] Sinyal VALID! {} | Z-Score: {:.2} | Entry: Rp {} | SL: Rp {}",
-            signal.symbol, signal.z_score, signal.entry_price, signal.stop_loss
-        );
-
-        // Eksekusi BUY dengan full equity yang tersedia
-        let buy_result = match trading_mode {
-            TradingMode::Live => {
-                order::place_buy_order(&api_key, &secret_key, &signal.symbol, equity).await
-            }
-            TradingMode::Paper => {
-                // Simulasi: hitung quantity berdasarkan harga entry
-                let simulated_qty = equity / signal.entry_price;
-                info!(
-                    "📋 [PAPER] Simulasi BUY {} | Qty: {:.8} @ Rp {}",
-                    signal.symbol, simulated_qty, signal.entry_price
-                );
-                Ok(order::OrderResult {
-                    order_id: 0,
-                    symbol: signal.symbol.clone(),
-                    executed_price: signal.entry_price,
-                    executed_qty: simulated_qty,
-                })
-            }
-        };
-
-        match buy_result {
-            Ok(result) => {
-                let trailing_initial = result.executed_price - (signal.atr * atr_multiplier);
-
-                // Simpan posisi baru
-                position = Some(ActivePosition {
-                    symbol: result.symbol.clone(),
-                    entry_price: result.executed_price,
-                    quantity: result.executed_qty,
-                    stop_loss: signal.stop_loss,
-                    take_profit: signal.take_profit,
-                    trailing_stop: trailing_initial,
-                    highest_price: result.executed_price,
-                });
-
-                info!(
-                    "✅ [GUARDIAN] Posisi AKTIF: {} | Entry: Rp {} | SL: Rp {} | TP: Rp {}",
-                    result.symbol, result.executed_price, signal.stop_loss, signal.take_profit
-                );
-
-                // Kirim laporan ENTRY ke Messenger
-                let report = TradeReport {
-                    symbol: result.symbol,
-                    report_type: ReportType::Entry,
-                    executed_price: result.executed_price,
-                    quantity: result.executed_qty,
-                    pnl_idr: None,
-                    equity_idr: Some(equity),
-                    timestamp: Utc::now(),
-                };
-
-                if let Err(e) = tx_report.send(report).await {
-                    error!("[GUARDIAN] Gagal kirim laporan ENTRY ke Messenger: {}", e);
+                            if let Ok(result) = sell_result {
+                                let pnl = (result.executed_price * result.executed_qty) - (pos.entry_price * pos.quantity);
+                                equity += pnl;
+                                
+                                let _ = tx_report.send(TradeReport {
+                                    symbol: pos.symbol.clone(),
+                                    report_type: exit_reason,
+                                    executed_price: result.executed_price,
+                                    quantity: result.executed_qty,
+                                    pnl_idr: Some(pnl),
+                                    equity_idr: Some(equity),
+                                    timestamp: Utc::now(),
+                                }).await;
+                                
+                                position = None;
+                                info!("💰 [GUARDIAN] Exit Selesai. PnL: Rp {:.0} | Equity: Rp {:.0}", pnl, equity);
+                            }
+                        } else {
+                            // Update Trailing Stop jika harga naik
+                            if price > pos.highest_price {
+                                pos.highest_price = price;
+                                // Kita asumsikan ATR tetap (atau bisa diupdate dari state jika perlu)
+                                // Untuk simplifikasi, kita pakai ATR saat entry
+                                let new_trailing = price - (pos.entry_price - pos.stop_loss); // Jarak SL awal
+                                if new_trailing > pos.trailing_stop {
+                                    pos.trailing_stop = new_trailing;
+                                }
+                                position = Some(pos);
+                            }
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                error!("❌ [GUARDIAN] BUY ORDER GAGAL: {:?}", e);
             }
         }
     }
