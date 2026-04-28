@@ -104,10 +104,16 @@ pub async fn connect_and_listen(
 
     info!("✅ [ENGINE] Cold Start Selesai. Seluruh data indikator telah terisi.");
 
+    let mut msg_count = 0;
+
     while let Some(msg) = read.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                // Combined stream membungkus data asli di dalam field "data"
+                msg_count += 1;
+                if msg_count % 100 == 0 {
+                    info!("💓 [LISTENER] Heartbeat: {} data market diterima...", msg_count);
+                }
+
                 let json: serde_json::Value = serde_json::from_str(&text)?;
                 let data = &json["data"];
                 
@@ -115,7 +121,7 @@ pub async fn connect_and_listen(
                     let symbol = event.symbol.clone();
                     let current_price = event.kline.close;
 
-                    // Update harga real-time di SharedState per symbol (tiap detik)
+                    // Update harga real-time di SharedState per symbol
                     {
                         let mut s = state.write().await;
                         let entry = s.market_data.entry(symbol.clone()).or_insert_with(SymbolState::default);
