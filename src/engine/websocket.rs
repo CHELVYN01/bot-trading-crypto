@@ -46,11 +46,50 @@ pub async fn connect_and_listen(
 
     let (_, mut read) = ws_stream.split();
 
-    // 2. Inisialisasi Scanner terpisah untuk tiap koin
-    let mut scanners: HashMap<String, Scanner> = SCAN_SYMBOLS
-        .iter()
-        .map(|s| (s.to_uppercase(), Scanner::new()))
-        .collect();
+    // 2. Inisialisasi Scanner dan COLD START untuk tiap koin
+    let mut scanners: HashMap<String, Scanner> = HashMap::new();
+
+    info!("🚀 [ENGINE] Memulai Cold Start untuk {} koin...", SCAN_SYMBOLS.len());
+
+    for symbol in SCAN_SYMBOLS {
+        let sym_upper = symbol.to_uppercase();
+        let mut scanner = Scanner::new();
+
+        // Ambil 50 data sejarah dari REST API
+        match crate::broker::api::fetch_historical_klines(symbol, 50).await {
+            Ok(klines) => {
+                let last_price = klines.last().map(|k| k.close);
+                
+                // Masukkan semua data sejarah ke scanner (tanpa kirim sinyal)
+                for kline in klines {
+                    scanner.store.push(kline);
+                }
+
+                // Hitung indikator awal
+                let atr = crate::strategy::indicators::calculate_atr(&scanner.store.candles, 14);
+                let z_score = crate::strategy::indicators::calculate_z_score_volume(&scanner.store.candles, 20);
+
+                // Update SharedState agar Telegram langsung valid
+                {
+                    let mut s = state.write().await;
+                    let entry = s.market_data.entry(sym_upper.clone()).or_insert_with(SymbolState::default);
+                    entry.last_price = last_price;
+                    entry.current_atr = atr;
+                    entry.current_z_score = z_score;
+                    entry.total_candles = scanner.store.candles.len();
+                }
+
+                scanners.insert(sym_upper.clone(), scanner);
+                debug!("[ENGINE] Cold Start selesai untuk {}", sym_upper);
+            }
+            Err(e) => {
+                error!("[ENGINE] Gagal Cold Start untuk {}: {}", sym_upper, e);
+                scanners.insert(sym_upper.clone(), scanner);
+            }
+        }
+    }
+
+    info!("✅ [ENGINE] Cold Start Selesai. Seluruh data indikator telah terisi.");
 
     while let Some(msg) = read.next().await {
         match msg {
