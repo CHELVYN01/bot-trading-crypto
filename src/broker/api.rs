@@ -61,3 +61,36 @@ pub async fn fetch_historical_klines(symbol: &str, limit: usize) -> anyhow::Resu
     info!("Berhasil menyedot {} data sejarah dalam hitungan milidetik!", klines.len());
     Ok(klines)
 }
+
+/// Mencari Top 10 Koin BIDR dengan kenaikan tertinggi dalam 24 jam (Dynamic Discovery)
+pub async fn fetch_top_gainers_bidr(limit: usize) -> anyhow::Result<Vec<String>> {
+    info!("🔍 [HUNTER] Sedang memindai seluruh pasar BIDR untuk mencari koin paling 'hot'...");
+    let client = reqwest::Client::new();
+    let url = "https://api.binance.com/api/v3/ticker/24hr";
+    
+    let res = client.get(url).send().await?;
+    let tickers: Vec<serde_json::Value> = res.json().await?;
+    
+    let mut bidr_tickers: Vec<(String, f64)> = tickers
+        .into_iter()
+        .filter(|t| t["symbol"].as_str().unwrap_or("").ends_with("BIDR"))
+        .map(|t| {
+            let symbol = t["symbol"].as_str().unwrap_or("").to_string();
+            let change_str = t["priceChangePercent"].as_str().unwrap_or("0");
+            let change = change_str.parse::<f64>().unwrap_or(0.0);
+            (symbol, change)
+        })
+        .collect();
+        
+    // Urutkan berdasarkan kenaikan persen tertinggi (Top Gainers)
+    bidr_tickers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let top_symbols: Vec<String> = bidr_tickers
+        .into_iter()
+        .take(limit)
+        .map(|(sym, _)| sym.to_lowercase())
+        .collect();
+        
+    info!("✅ [HUNTER] Ditemukan {} koin potensial: {:?}", top_symbols.len(), top_symbols);
+    Ok(top_symbols)
+}

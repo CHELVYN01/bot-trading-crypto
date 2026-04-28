@@ -104,11 +104,15 @@ pub async fn run_telegram_bot(
 
                         for sym in symbols.iter().take(10) {
                             if let Some(data) = s.market_data.get(*sym) {
-                                let price = data.last_price.map_or("...".to_string(), |p| format!("Rp {}", p));
+                                let price = data.last_price.map_or("...".to_string(), |p| format!("Rp {:.0}", p));
+                                let atr = data.current_atr.map_or("...".to_string(), |a| format!("{:.0}", a));
+                                let z_score = data.current_z_score.map_or("...".to_string(), |z| format!("{:.2}", z));
+                                
                                 let whale = if data.is_whale_alert { "🚨 <b>SURGE!</b>" } else { "✅" };
+                                
                                 market_summary.push_str(&format!(
-                                    "🔸 <b>{}</b>: {}\n   Status: {}\n",
-                                    sym, price, whale
+                                    "🔸 <b>{}</b>: {}\n   ATR: {} | Z: {}\n   Status: {}\n",
+                                    sym, price, atr, z_score, whale
                                 ));
                             }
                         }
