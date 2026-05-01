@@ -23,6 +23,9 @@ pub struct SymbolState {
     pub current_z_score: Option<Decimal>,
     pub total_candles: usize,
     pub is_whale_alert: bool,
+    pub order_book_imbalance: Option<Decimal>, // 0.0 - 1.0
+    pub bid_wall: Option<(Decimal, Decimal)>,  // (Price, Volume)
+    pub ask_wall: Option<(Decimal, Decimal)>,  // (Price, Volume)
 }
 
 /// Struktur utama yang menyimpan kondisi terkini dari bot.

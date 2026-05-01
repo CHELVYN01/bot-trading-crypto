@@ -41,3 +41,12 @@ pub struct Kline {
     #[serde(rename = "x")]
     pub is_final: bool,
 }
+
+/// Representasi Order Book (Depth) Limited Levels (misal: 5, 10, 20)
+#[derive(Debug, Deserialize, Clone)]
+pub struct DepthEvent {
+    #[serde(rename = "lastUpdateId")]
+    pub last_update_id: u64,
+    pub bids: Vec<[Decimal; 2]>, // [Price, Quantity]
+    pub asks: Vec<[Decimal; 2]>, // [Price, Quantity]
+}

@@ -18,6 +18,9 @@ const SL_MULTIPLIER: Decimal = dec!(1.5);
 /// ATR Multiplier untuk Take Profit (3.0x ATR = Risk:Reward 1:2)
 const TP_MULTIPLIER: Decimal = dec!(3.0);
 
+/// Threshold Order Book Imbalance (Min 60% tekanan beli)
+const OBI_THRESHOLD: Decimal = dec!(0.6);
+
 pub struct Scanner {
     pub store: MarketStore,
 }
@@ -31,15 +34,12 @@ impl Scanner {
     }
 
     /// Dipanggil oleh The Listener setiap kali ada final candle baru.
-    ///
-    /// Returns tuple:
-    /// - `(Option<Decimal>, Option<Decimal>)` → (ATR, Z-Score) untuk update SharedState
-    /// - Jika sinyal valid, emit TradeSignal melalui `tx_signal` channel
     pub async fn process_new_candle(
         &mut self,
         symbol: &str,
         kline: Kline,
         tx_signal: &mpsc::Sender<TradeSignal>,
+        imbalance: Option<Decimal>,
     ) -> (Option<Decimal>, Option<Decimal>) {
         let close_price = kline.close;
 
@@ -52,16 +52,18 @@ impl Scanner {
 
         // 3. Evaluasi sinyal jika data sudah cukup
         if let (Some(atr_val), Some(z_val)) = (atr, z_score) {
+            let obi_val = imbalance.unwrap_or(dec!(0.5));
+            
             info!(
-                "🧠 [STRATEGIST] {}: Close=Rp {} | ATR(14)=Rp {:.2} | Z-Score(20)={:.2}",
+                "🧠 [STRATEGIST] {}: Price=Rp {} | Z-Score={:.2} | OBI={:.2}",
                 symbol.to_uppercase(),
                 close_price,
-                atr_val,
-                z_val
+                z_val,
+                obi_val
             );
 
-            // === SINYAL BUY: Volume Surge terdeteksi ===
-            if z_val > Z_SCORE_THRESHOLD {
+            // === SINYAL BUY: Volume Surge + Order Book Imbalance ===
+            if z_val > Z_SCORE_THRESHOLD && obi_val > OBI_THRESHOLD {
                 let stop_loss = close_price - (atr_val * SL_MULTIPLIER);
                 let take_profit = close_price + (atr_val * TP_MULTIPLIER);
 
@@ -77,14 +79,19 @@ impl Scanner {
                 };
 
                 info!(
-                    "🚀 [STRATEGIST] SINYAL BUY! {} | Entry=Rp {} | SL=Rp {:.0} | TP=Rp {:.0} | Z={:.2}",
-                    symbol, close_price, stop_loss, take_profit, z_val
+                    "🚀 [STRATEGIST] SINYAL BUY TERKONFIRMASI! {} | Z={:.2} | OBI={:.2}",
+                    symbol, z_val, obi_val
                 );
 
                 // Kirim sinyal ke Guardian via channel (non-blocking)
                 if let Err(e) = tx_signal.try_send(signal) {
                     tracing::warn!("[STRATEGIST] Channel penuh, sinyal diabaikan: {}", e);
                 }
+            } else if z_val > Z_SCORE_THRESHOLD {
+                info!(
+                    "⚠️ [STRATEGIST] {} : Volume Surge terdeteksi (Z={:.2}), tapi Order Book tidak mendukung (OBI={:.2}). Trade dibatalkan.",
+                    symbol, z_val, obi_val
+                );
             }
         } else {
             info!(

@@ -198,14 +198,8 @@ pub async fn run_guardian(
 /// Evaluasi apakah posisi aktif harus di-exit.
 /// Mengembalikan Some(ReportType) jika exit, None jika masih hold.
 fn check_exit_condition(pos: &ActivePosition, current_price: Decimal) -> Option<ReportType> {
-    // 1. Take Profit tercapai
-    if current_price >= pos.take_profit {
-        info!(
-            "🎉 [GUARDIAN] TAKE PROFIT! {} | Harga: Rp {} | TP: Rp {}",
-            pos.symbol, current_price, pos.take_profit
-        );
-        return Some(ReportType::TakeProfit);
-    }
+    // 1. Pengecekan Take Profit statis dihapus agar bot bisa "Ride the Trend"
+    // Bot akan keluar hanya jika harga menyentuh Trailing Stop yang terus naik.
 
     // 2. Trailing Stop Loss tersentuh (lebih prioritas dari SL statis)
     if current_price <= pos.trailing_stop {
