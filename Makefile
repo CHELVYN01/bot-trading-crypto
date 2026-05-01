@@ -36,12 +36,11 @@ ps:
 clean:
 	docker system prune -f
 
-# Update kode dari Git, paksa build ulang secara total, dan lari!
+# Update kode dari Git, paksa build ulang, dan langsung tunjukkan log
 update:
 	git pull origin develop
 	docker compose down
-	docker compose build --no-cache
-	docker compose up -d
+	docker compose up -d --build
 	docker compose logs -f trading_bot
 
 # Rebuild image dan update service yang berubah saja
