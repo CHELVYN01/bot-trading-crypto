@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use chrono::Utc;
 
 use crate::broker::order;
-use crate::engine::state::{SharedState, TradingMode};
+use crate::engine::state::{SharedState, TradingMode, BtcTrend};
 use crate::strategy::signal::{ReportType, TradeReport, TradeSignal};
 
 /// Representasi posisi yang sedang aktif (bot sedang memegang aset).
@@ -85,12 +85,19 @@ pub async fn run_guardian(
             // 1. Terima sinyal baru untuk Entry
             Some(signal) = rx_signal.recv() => {
                 if position.is_none() {
-                    let trading_mode = {
+                    let (trading_mode, btc_trend) = {
                         let s = state.read().await;
-                        s.trading_mode.clone()
+                        (s.trading_mode.clone(), s.btc_trend.clone())
                     };
 
-                    if signal.z_score >= dec!(2.5) && equity >= dec!(10000) {
+                    // Mode Defensif: blokir altcoin jika BTC sedang turun tajam
+                    let is_major = signal.symbol.starts_with("BTC") || signal.symbol.starts_with("ETH");
+                    if matches!(btc_trend, BtcTrend::Bearish) && !is_major {
+                        warn!(
+                            "🛡️ [GUARDIAN] [DEFENSIF] {} diblokir — BTC BEARISH. Menunggu pemulihan market.",
+                            signal.symbol
+                        );
+                    } else if signal.z_score >= dec!(2.5) && equity >= dec!(10000) {
                         info!("🎯 [GUARDIAN] Sinyal VALID! {} | Entry: Rp {}", signal.symbol, signal.entry_price);
                         
                         let buy_result = match trading_mode {

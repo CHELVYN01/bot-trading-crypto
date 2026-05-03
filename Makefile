@@ -8,10 +8,10 @@ CONTAINER_NAME=trading_instance
 build:
 	docker build -t $(IMAGE_NAME) .
 
-# Menjalankan & build ulang bot saja, lalu langsung lihat log (SOP Update)
+# Menarik kode terbaru, build ulang paksa, dan jalankan bot (Tanpa log otomatis)
 up:
-	docker compose up -d --build trading_bot
-	docker compose logs -f trading_bot
+	git pull origin develop
+	docker compose up -d --build --force-recreate trading_bot
 
 # Menjalankan SEMUA service pertama kali
 start:
