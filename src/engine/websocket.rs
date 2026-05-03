@@ -1,4 +1,5 @@
 use futures_util::StreamExt;
+use rust_decimal::prelude::ToPrimitive;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -174,16 +175,51 @@ pub async fn connect_and_listen(
                                     .process_new_candle(&symbol, event.kline, &tx_signal, current_obi)
                                     .await;
 
-                                // Update State untuk indikator per-koin
+                                // Update State untuk indikator per-koin + BTC trend
                                 {
                                     let mut s = state.write().await;
                                     if let Some(entry) = s.market_data.get_mut(&symbol) {
                                         entry.current_atr = atr;
                                         entry.current_z_score = z_score;
                                         entry.total_candles = scanner.store.candles.len();
-                                        
+
                                         let threshold = rust_decimal::Decimal::from_f64_retain(2.5).unwrap_or_default();
                                         entry.is_whale_alert = z_score.map_or(false, |z| z > threshold);
+                                    }
+
+                                    // Perbarui BTC Trend jika ini adalah candle BTCBIDR
+                                    if symbol == "BTCBIDR" {
+                                        s.btc_price_history.push_back(current_price);
+                                        while s.btc_price_history.len() > 5 {
+                                            s.btc_price_history.pop_front();
+                                        }
+                                        if s.btc_price_history.len() >= 3 {
+                                            let old_f = s.btc_price_history.front()
+                                                .and_then(|d| d.to_f64()).unwrap_or(1.0);
+                                            let new_f = s.btc_price_history.back()
+                                                .and_then(|d| d.to_f64()).unwrap_or(1.0);
+                                            if old_f > 0.0 {
+                                                let change = (new_f - old_f) / old_f * 100.0;
+                                                s.btc_change_pct = Some(change);
+                                                let new_trend = if change > 0.3 {
+                                                    crate::engine::state::BtcTrend::Bullish
+                                                } else if change < -0.3 {
+                                                    crate::engine::state::BtcTrend::Bearish
+                                                } else {
+                                                    crate::engine::state::BtcTrend::Neutral
+                                                };
+                                                let label = match &new_trend {
+                                                    crate::engine::state::BtcTrend::Bullish => "🟢 BULLISH",
+                                                    crate::engine::state::BtcTrend::Bearish => "🔴 BEARISH",
+                                                    crate::engine::state::BtcTrend::Neutral => "🟡 NEUTRAL",
+                                                };
+                                                info!(
+                                                    "₿ [BTC-TREND] {}m change: {:+.2}% → {}",
+                                                    s.btc_price_history.len() - 1, change, label
+                                                );
+                                                s.btc_trend = new_trend;
+                                            }
+                                        }
                                     }
                                 }
                             }
